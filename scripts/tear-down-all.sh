@@ -61,8 +61,8 @@ release_eip_if_free() {
     || warn "could not release $a (already gone?)"
 }
 
-# 3a. from state.txt (safe parse)
-mapfile -t STATE_IDS < <(extract_eip_allocs "$STATE_FILE")
+# 3a. from state.txt (safe parse; bash 3.2 compat — no mapfile)
+read_lines STATE_IDS "$(extract_eip_allocs "$STATE_FILE")"
 if [[ ${#STATE_IDS[@]} -gt 0 ]]; then
   log "from state.txt: ${STATE_IDS[*]}"
   for a in "${STATE_IDS[@]}"; do release_eip_if_free "$a"; done
@@ -71,9 +71,10 @@ else
 fi
 
 # 3b. tag-based sweep — catches orphans from failed earlier runs
-mapfile -t TAG_IDS < <(aws ec2 describe-addresses --region "$AWS_REGION" \
+TAG_SWEEP_OUT=$(aws ec2 describe-addresses --region "$AWS_REGION" \
   --filters "Name=tag:Purpose,Values=eks-stable-nlb" \
   --query 'Addresses[?AssociationId==null].AllocationId' --output text | tr '\t' '\n')
+read_lines TAG_IDS "$TAG_SWEEP_OUT"
 if [[ ${#TAG_IDS[@]} -gt 0 ]]; then
   log "tag sweep (Purpose=eks-stable-nlb, unassociated): ${TAG_IDS[*]}"
   for a in "${TAG_IDS[@]}"; do release_eip_if_free "$a"; done

@@ -15,9 +15,10 @@ SNAP="$SCRIPT_DIR/snapshot-before.txt"
   kubectl -n stable-ip-demo get svc demo-nlb-stable -o wide
   echo
   echo "## EIPs"
-  # POSTMORTEM M1: safe parse, never source state.txt
-  mapfile -t EIP_IDS < <(extract_eip_allocs "$SCRIPT_DIR/state.txt")
-  for a in "${EIP_IDS[@]}"; do
+  # POSTMORTEM M1: safe parse, never source state.txt (bash 3.2 compat)
+  read_lines EIP_IDS "$(extract_eip_allocs "$SCRIPT_DIR/state.txt")"
+  for a in "${EIP_IDS[@]:-}"; do
+    [[ -z "$a" ]] && continue
     aws ec2 describe-addresses --region "$AWS_REGION" --allocation-ids "$a" \
       --query 'Addresses[0].[AllocationId,PublicIp,AssociationId,NetworkInterfaceOwnerId]' --output text
   done

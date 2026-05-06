@@ -42,15 +42,35 @@ run() {
 #
 # Never `source` state.txt — a malformed file (e.g. leading whitespace in the
 # value) causes bash to execute "eipalloc-xxx" as a command. Instead grep the
-# literal tokens and echo them space-separated. Safe no matter how state.txt
+# literal tokens and print them newline-separated. Safe no matter how state.txt
 # was written (leading spaces, quotes, empty file, missing file).
 #
+# macOS ships bash 3.2, which has no `mapfile`. Callers use `read_lines`
+# below for compatibility.
+#
 # Usage:
-#   mapfile -t EIP_IDS < <(extract_eip_allocs "$STATE_FILE")
-#   for a in "${EIP_IDS[@]}"; do aws ec2 release-address --allocation-id "$a"; done
+#   read_lines EIP_IDS "$(extract_eip_allocs "$STATE_FILE")"
+#   for a in "${EIP_IDS[@]:-}"; do [[ -n "$a" ]] && aws ec2 release-address --allocation-id "$a"; done
 extract_eip_allocs() {
   local file="${1:-}"
   [[ -f "$file" ]] || return 0
   # Match only the canonical `eipalloc-<hex>` pattern; 8 or 17 hex chars.
   grep -oE 'eipalloc-[0-9a-f]{8,17}' "$file" 2>/dev/null | sort -u || true
+}
+
+# read_lines <array_name> <text>
+# Split <text> on newlines into a bash array named <array_name>.
+# bash 3.2 compatible (no `mapfile`, no `readarray`).
+# An empty <text> produces an empty array without tripping `set -u`.
+read_lines() {
+  local __name="$1"
+  local __text="${2:-}"
+  # Clear any previous value; declare as array in the caller's scope.
+  eval "$__name=()"
+  [[ -z "$__text" ]] && return 0
+  local __line
+  while IFS= read -r __line; do
+    [[ -z "$__line" ]] && continue
+    eval "$__name+=(\"\$__line\")"
+  done <<< "$__text"
 }

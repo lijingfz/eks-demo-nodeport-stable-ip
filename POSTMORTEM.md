@@ -44,6 +44,28 @@
   2. 或在 demo 脚本里加一步强制 terminate 节点的路径。
   > 建议后续把 `04-upgrade-nodegroup.sh` 扩展成：先 `describe-nodegroup` 看 `version/releaseVersion`，若已是 latest 就提示改用 `terminate-instance-in-auto-scaling-group` 模拟。
 
+### P6. macOS 系统 bash 是 3.2，不支持 `mapfile` / `readarray`
+
+- **症状**：teardown 脚本第 3 步抛
+  ```
+  ./scripts/tear-down-all.sh: line 65: mapfile: command not found
+  ```
+- **根因**：macOS 仍然内置 bash 3.2（Apple 停在这个版本是因为 4+ 改成 GPLv3）。`mapfile` / `readarray` 是 bash 4 新增内建。`#!/usr/bin/env bash` + 系统 `/bin/bash` → 3.2，脚本中 `mapfile -t ARR < <(cmd)` 直接 fail。
+- **处理**：在 `scripts/common.sh` 里实现了兼容 3.2 的 `read_lines <name> <text>`（内部用 `while IFS= read -r` 拼到数组），所有调用点把 `mapfile -t X < <(...)` 改成 `read_lines X "$(...)"`。
+- **教训**：写要在 macOS 直接跑的 shell 脚本时，别用：
+  - `mapfile` / `readarray`
+  - `associative arrays` (`declare -A`)
+  - `${var^^}` / `${var,,}` 大小写转换
+  - `[[ $var =~ regex ]]` 里用 `BASH_REMATCH[n]` 某些边界行为
+  - `${!prefix*}` / `${!prefix@}` 间接名字扩展的部分场景
+  
+  要么全避开（本次做法），要么脚本开头加检查：
+  ```bash
+  ((BASH_VERSINFO[0] >= 4)) || { err "need bash 4+, got $BASH_VERSION"; exit 1; }
+  ```
+  
+  同时要注意 `"${arr[@]}"` 在 `set -u` 下、数组为空时会触发 "unbound variable"——用 `"${arr[@]:-}"` 并在循环里跳过空串。
+
 ### P5. `aws eks describe-update` 的参数名是 `--name`（集群名）不是 `--cluster-name`
 
 - **症状**：

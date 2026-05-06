@@ -22,8 +22,8 @@ ELB=$(kubectl -n stable-ip-demo get svc demo-nlb-stable \
 log "NLB DNS: $ELB"
 
 # Pick an EIP to curl against during the upgrade (first EIP from state.txt).
-# POSTMORTEM M1: safe parse, never source state.txt
-mapfile -t EIP_IDS < <(extract_eip_allocs "$SCRIPT_DIR/state.txt")
+# POSTMORTEM M1: safe parse, never source state.txt (bash 3.2 compat)
+read_lines EIP_IDS "$(extract_eip_allocs "$SCRIPT_DIR/state.txt")"
 [[ ${#EIP_IDS[@]} -ge 1 ]] || { err "no EIP allocations in state.txt"; exit 1; }
 FIRST_ALLOC="${EIP_IDS[0]}"
 FIRST_EIP=$(aws ec2 describe-addresses --region "$AWS_REGION" \

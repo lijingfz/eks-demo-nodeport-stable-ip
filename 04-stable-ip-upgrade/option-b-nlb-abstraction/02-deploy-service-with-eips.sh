@@ -6,7 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/../../00-prerequisites/env.sh"
 
 # POSTMORTEM M1: never `source state.txt` — parse tokens safely instead.
-mapfile -t EIP_IDS < <(extract_eip_allocs "$SCRIPT_DIR/state.txt")
+# macOS bash 3.2 has no `mapfile`; use read_lines helper from common.sh.
+read_lines EIP_IDS "$(extract_eip_allocs "$SCRIPT_DIR/state.txt")"
 [[ ${#EIP_IDS[@]} -ge 1 ]] || { err "no EIP allocation IDs in $SCRIPT_DIR/state.txt — run 01-allocate-eips.sh first"; exit 1; }
 EIP_ALLOCS_CSV=$(IFS=,; echo "${EIP_IDS[*]}")
 
