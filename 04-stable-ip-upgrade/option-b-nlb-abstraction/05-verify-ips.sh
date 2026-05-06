@@ -17,8 +17,9 @@ AFTER="$SCRIPT_DIR/snapshot-after.txt"
   kubectl -n stable-ip-demo get svc demo-nlb-stable -o wide
   echo
   echo "## EIPs"
-  source "$SCRIPT_DIR/state.txt"
-  for a in $EIP_ALLOCS; do
+  # POSTMORTEM M1: safe parse, never source state.txt
+  mapfile -t EIP_IDS < <(extract_eip_allocs "$SCRIPT_DIR/state.txt")
+  for a in "${EIP_IDS[@]}"; do
     aws ec2 describe-addresses --region "$AWS_REGION" --allocation-ids "$a" \
       --query 'Addresses[0].[AllocationId,PublicIp,AssociationId]' --output text
   done

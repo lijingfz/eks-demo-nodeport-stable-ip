@@ -37,35 +37,49 @@ kubectl delete ns nodeport-demo   --ignore-not-found --timeout=120s || true
 kubectl delete ns stable-ip-demo  --ignore-not-found --timeout=120s || true
 
 # ---- 3. EIPs ----
+#
+# POSTMORTEM M1: Do NOT `source` state.txt — a malformed value (e.g. leading
+# whitespace from a hand-written inline command) causes bash to execute the
+# allocation ID as a command under `set -e` and abort the whole teardown.
+# Parse the file with extract_eip_allocs(), and always follow with a
+# tag-based sweep so a missing/corrupt state.txt never leaks EIPs.
 log "3/6  release EIPs created by stable-ip demo"
 STATE_FILE="$REPO_DIR/04-stable-ip-upgrade/option-b-nlb-abstraction/state.txt"
-if [[ -f "$STATE_FILE" ]]; then
-  # shellcheck disable=SC1090
-  source "$STATE_FILE"
-  for a in $EIP_ALLOCS; do
-    ASSOC=$(aws ec2 describe-addresses --region "$AWS_REGION" \
-      --allocation-ids "$a" \
-      --query 'Addresses[0].AssociationId' --output text 2>/dev/null || echo "None")
-    if [[ "$ASSOC" != "None" && -n "$ASSOC" ]]; then
-      warn "EIP $a still associated ($ASSOC); skipping. Delete the NLB first."
-      continue
-    fi
-    aws ec2 release-address --region "$AWS_REGION" --allocation-id "$a" \
-      && ok "released $a" \
-      || warn "could not release $a (already gone?)"
-  done
-  rm -f "$STATE_FILE"
+
+release_eip_if_free() {
+  local a="$1"
+  local assoc
+  assoc=$(aws ec2 describe-addresses --region "$AWS_REGION" \
+    --allocation-ids "$a" \
+    --query 'Addresses[0].AssociationId' --output text 2>/dev/null || echo "None")
+  if [[ "$assoc" != "None" && -n "$assoc" ]]; then
+    warn "EIP $a still associated ($assoc); skipping. Delete the NLB first."
+    return 0
+  fi
+  aws ec2 release-address --region "$AWS_REGION" --allocation-id "$a" \
+    && ok "released $a" \
+    || warn "could not release $a (already gone?)"
+}
+
+# 3a. from state.txt (safe parse)
+mapfile -t STATE_IDS < <(extract_eip_allocs "$STATE_FILE")
+if [[ ${#STATE_IDS[@]} -gt 0 ]]; then
+  log "from state.txt: ${STATE_IDS[*]}"
+  for a in "${STATE_IDS[@]}"; do release_eip_if_free "$a"; done
 else
-  log "no state.txt; skipping EIP release"
+  log "state.txt missing or empty — relying on tag sweep below"
 fi
 
-# Fallback: release any EIP tagged Purpose=eks-stable-nlb that's unassociated
-for a in $(aws ec2 describe-addresses --region "$AWS_REGION" \
-             --filters "Name=tag:Purpose,Values=eks-stable-nlb" \
-             --query 'Addresses[?AssociationId==null].AllocationId' --output text | tr '\t' '\n'); do
-  aws ec2 release-address --region "$AWS_REGION" --allocation-id "$a" \
-    && ok "released orphan $a" || true
-done
+# 3b. tag-based sweep — catches orphans from failed earlier runs
+mapfile -t TAG_IDS < <(aws ec2 describe-addresses --region "$AWS_REGION" \
+  --filters "Name=tag:Purpose,Values=eks-stable-nlb" \
+  --query 'Addresses[?AssociationId==null].AllocationId' --output text | tr '\t' '\n')
+if [[ ${#TAG_IDS[@]} -gt 0 ]]; then
+  log "tag sweep (Purpose=eks-stable-nlb, unassociated): ${TAG_IDS[*]}"
+  for a in "${TAG_IDS[@]}"; do release_eip_if_free "$a"; done
+fi
+
+rm -f "$STATE_FILE"
 
 # ---- 4. IAM Role stack ----
 log "4/6  delete IAM Role stack"

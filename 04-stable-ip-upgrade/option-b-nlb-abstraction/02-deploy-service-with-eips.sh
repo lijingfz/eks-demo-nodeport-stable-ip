@@ -4,8 +4,11 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/../../00-prerequisites/env.sh"
-# shellcheck disable=SC1091
-source "$SCRIPT_DIR/state.txt"
+
+# POSTMORTEM M1: never `source state.txt` — parse tokens safely instead.
+mapfile -t EIP_IDS < <(extract_eip_allocs "$SCRIPT_DIR/state.txt")
+[[ ${#EIP_IDS[@]} -ge 1 ]] || { err "no EIP allocation IDs in $SCRIPT_DIR/state.txt — run 01-allocate-eips.sh first"; exit 1; }
+EIP_ALLOCS_CSV=$(IFS=,; echo "${EIP_IDS[*]}")
 
 # 1. aws-load-balancer-controller (required for NLB + static EIP binding).
 # LBC_CHART_VERSION is pinned so a future upstream bump doesn't silently change

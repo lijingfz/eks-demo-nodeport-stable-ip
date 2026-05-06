@@ -37,3 +37,20 @@ run() {
     eval "$@"
   fi
 }
+
+# Parse EIP allocation IDs safely (POSTMORTEM M1).
+#
+# Never `source` state.txt — a malformed file (e.g. leading whitespace in the
+# value) causes bash to execute "eipalloc-xxx" as a command. Instead grep the
+# literal tokens and echo them space-separated. Safe no matter how state.txt
+# was written (leading spaces, quotes, empty file, missing file).
+#
+# Usage:
+#   mapfile -t EIP_IDS < <(extract_eip_allocs "$STATE_FILE")
+#   for a in "${EIP_IDS[@]}"; do aws ec2 release-address --allocation-id "$a"; done
+extract_eip_allocs() {
+  local file="${1:-}"
+  [[ -f "$file" ]] || return 0
+  # Match only the canonical `eipalloc-<hex>` pattern; 8 or 17 hex chars.
+  grep -oE 'eipalloc-[0-9a-f]{8,17}' "$file" 2>/dev/null | sort -u || true
+}

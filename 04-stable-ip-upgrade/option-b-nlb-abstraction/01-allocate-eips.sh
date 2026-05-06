@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # Allocate 3 EIPs (one per AZ) and tag them for later NLB binding.
+#
+# state.txt format (POSTMORTEM M1):
+#   Kept as a plain list (one allocation-id per line) plus a CSV line, written
+#   via printf so leading whitespace can never sneak in. Downstream scripts
+#   parse it with extract_eip_allocs() in scripts/common.sh — never `source`.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/../../00-prerequisites/env.sh"
 
 STATE="$SCRIPT_DIR/state.txt"
-if [[ -f "$STATE" ]] && grep -q "^EIP_ALLOCS=" "$STATE"; then
+if [[ -f "$STATE" ]] && grep -q "^eipalloc-" "$STATE"; then
   log "state.txt already has EIP allocations:"
-  grep ^EIP "$STATE"
+  grep "^eipalloc-" "$STATE"
   exit 0
 fi
 
@@ -25,8 +30,9 @@ for az in "$AZ_A" "$AZ_B" "$AZ_C"; do
   ALLOCS+=("$ALLOC_ID")
 done
 
+# Plain, grep-friendly format. Never `source` this file.
 {
-  echo "EIP_ALLOCS=${ALLOCS[*]}"
-  echo "EIP_ALLOCS_CSV=$(IFS=,; echo "${ALLOCS[*]}")"
+  printf '%s\n' "${ALLOCS[@]}"
+  printf 'CSV=%s\n' "$(IFS=,; echo "${ALLOCS[*]}")"
 } > "$STATE"
 ok "wrote $STATE"
