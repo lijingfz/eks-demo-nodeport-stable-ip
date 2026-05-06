@@ -1,0 +1,60 @@
+# Demo app + NodePort Service (no Ingress, no LoadBalancer).
+# Pair with nlb-to-nodeport.yaml if you want an AWS NLB in front.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nodeport-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo
+  namespace: nodeport-demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: demo }
+  template:
+    metadata:
+      labels: { app: demo }
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: demo }
+      containers:
+        - name: web
+          image: public.ecr.aws/nginx/nginx:1.27-alpine
+          ports: [{ containerPort: 80 }]
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
+          volumeMounts:
+            - { name: html, mountPath: /usr/share/nginx/html }
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/sh","-c","echo \"hello from $HOSTNAME\" > /usr/share/nginx/html/index.html"]
+      volumes:
+        - name: html
+          emptyDir: {}
+---
+# ----- 方案 A：纯 NodePort -----
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-nodeport
+  namespace: nodeport-demo
+spec:
+  type: NodePort
+  selector: { app: demo }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      nodePort: 31080
+  externalTrafficPolicy: Cluster    # 跨节点转发；改成 Local 可保留真实 clientIP 但健康检查更严

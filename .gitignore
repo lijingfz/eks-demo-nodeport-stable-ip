@@ -1,0 +1,19 @@
+# Claude Code local state
+.claude/
+
+# kube / aws local
+.kube/
+.aws/
+
+# demo runtime state (per-run IDs, snapshots, rendered manifests)
+**/state.txt
+**/snapshot-before.txt
+**/snapshot-after.txt
+04-stable-ip-upgrade/option-b-nlb-abstraction/nlb-service.yaml
+
+# logs & editor
+*.log
+.DS_Store
+*.swp
+.idea/
+.vscode/

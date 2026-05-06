@@ -1,0 +1,33 @@
+# 方案 C：type=LoadBalancer，但目标类型=instance（即 NLB 回源到节点的 NodePort），
+# 没有 Ingress Controller、没有 ALB、由 AWS Cloud Controller Manager 直接管理 NLB。
+#
+# 前提：EKS 1.35 已不再内置 in-tree AWS cloud-provider 的 service-controller
+# (legacy cloud-provider-aws 在 1.27 已 GA 拆出、1.29+ 不再发布 in-tree)。因此在
+# 1.33+ 集群上创建 type=LoadBalancer 的 Service 必须依赖 aws-load-balancer-controller
+# (本 demo 在 04-stable-ip 的 02 脚本里通过 Helm 安装；如果只跑 03-nodeport-demo，
+#  也可以提前装好 LBC，或者只验证纯 NodePort 的 A 方案)。
+#
+# 标准 annotation (LBC 识别)：
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-nlb
+  namespace: nodeport-demo
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "external"
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "instance"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    # Health check 走 NodePort 本身的 /
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: "HTTP"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-path: "/"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Cluster
+  selector: { app: demo }
+  ports:
+    - name: http
+      port: 80         # NLB 对外端口
+      targetPort: 80   # Pod 端口
+      # 不显式写 nodePort；K8s 会分配一个 NodePort 并让 NLB 指向它。
+      # 你也可以写成 nodePort: 31080 强制复用 demo-nodeport 那个端口。

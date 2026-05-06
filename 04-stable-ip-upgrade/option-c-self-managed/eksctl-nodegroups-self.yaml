@@ -1,0 +1,31 @@
+# Self-managed nodegroup skeleton for eksctl. NOT applied by the demo by default —
+# option B covers the common case. Kept here as a reference for option C (primary-IP stable).
+#
+# Use:   eksctl create nodegroup -f eksctl-nodegroups-self.yaml
+#
+# Drawback of this file: eksctl's self-managed nodeGroups still create an ASG with
+# its own ENI logic; to truly pin the primary ENI you need create-asg-with-fixed-eni.sh
+# (raw CLI) instead of eksctl.
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: eks-demo
+  region: us-east-1
+
+nodeGroups:    # NOTE: nodeGroups (self-managed), not managedNodeGroups
+  - name: ng-self-stable
+    instanceType: t3.large
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 1
+    privateNetworking: true
+    ssh:
+      allow: false
+    labels:
+      stable-ip: primary
+    taints:
+      - key: stable-ip
+        value: "true"
+        effect: NoSchedule
+    preBootstrapCommands:
+      - "echo 'custom ENI attach logic would go here'"

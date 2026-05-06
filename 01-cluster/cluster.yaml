@@ -1,0 +1,89 @@
+# eksctl ClusterConfig — single source of truth for the demo cluster.
+# Review points:
+#   - region / version / AZs
+#   - managedNodeGroups (size / instance type / labels / tags for Console compatibility)
+#   - addons & IRSA for VPC CNI / EBS CSI
+#   - publicAccessCIDRs — limit to your office/home CIDR before 'apply'
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: eks-demo
+  region: us-east-1
+  version: "1.35"
+  tags:
+    Owner: eks-demo
+    Purpose: demo
+
+# VPC: create a fresh one so we control CIDR & tagging (important for console UX)
+vpc:
+  cidr: 10.80.0.0/16
+  autoAllocateIPv6: false
+  nat:
+    gateway: Single           # demo-friendly cost; 生产用 HighlyAvailable
+  clusterEndpoints:
+    publicAccess: true
+    privateAccess: true
+  # 生产应收敛到办公出口 CIDR；demo 保持 0.0.0.0/0，review 时再决定
+  publicAccessCIDRs: ["0.0.0.0/0"]
+
+availabilityZones: ["us-east-1a", "us-east-1b", "us-east-1c"]
+
+iam:
+  withOIDC: true              # 为 IRSA / addon service accounts 启用
+  serviceAccounts:
+    - metadata:
+        name: aws-load-balancer-controller
+        namespace: kube-system
+      wellKnownPolicies:
+        awsLoadBalancerController: true
+    - metadata:
+        name: ebs-csi-controller-sa
+        namespace: kube-system
+      wellKnownPolicies:
+        ebsCSIController: true
+
+managedNodeGroups:
+  - name: ng-demo
+    amiFamily: AmazonLinux2023   # 1.35 推荐；AL2 在新版本中已不再是默认
+    instanceType: t3.large
+    desiredCapacity: 2
+    minSize: 2
+    maxSize: 4
+    volumeSize: 50
+    volumeType: gp3
+    privateNetworking: true    # 节点走私网子网，公网通过 NAT
+    labels:
+      role: worker
+      demo: "true"
+    tags:
+      Name: eks-demo-ng-demo
+      Owner: eks-demo
+    iam:
+      withAddonPolicies:
+        imageBuilder: false
+        autoScaler: true
+        externalDNS: false
+        certManager: false
+        appMesh: false
+        ebs: true
+        efs: false
+        albIngress: false      # 本 demo 不使用 ALB Ingress
+        xRay: false
+        cloudWatch: true
+
+addons:
+  - name: vpc-cni
+    resolveConflicts: overwrite
+  - name: coredns
+    resolveConflicts: overwrite
+  - name: kube-proxy
+    resolveConflicts: overwrite
+  - name: aws-ebs-csi-driver
+    resolveConflicts: overwrite
+    serviceAccountRoleARN: ""   # eksctl 创建 IRSA 后回填
+
+cloudWatch:
+  clusterLogging:
+    enableTypes: ["api", "audit", "authenticator"]
+    logRetentionInDays: 7

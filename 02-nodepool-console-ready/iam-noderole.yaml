@@ -1,0 +1,35 @@
+# Standalone CloudFormation to create a Node IAM Role that the EKS Console
+# will recognize in the "Node IAM role" dropdown when creating a nodegroup.
+# Deployed by apply-fix.sh via `aws cloudformation deploy`.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Generic EKS Node IAM Role for console-based nodegroup creation
+
+Resources:
+  EKSNodeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: eksDemoNodeRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Owner
+          Value: eks-demo
+        - Key: Purpose
+          Value: demo
+
+Outputs:
+  RoleArn:
+    Value: !GetAtt EKSNodeRole.Arn
+    Export:
+      Name: eksDemoNodeRoleArn
