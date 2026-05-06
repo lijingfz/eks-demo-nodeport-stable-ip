@@ -48,7 +48,7 @@
 - 节点升级时：NLB TargetGroup 自动 deregister 旧节点、register 新节点；**客户端看到的 DNS 和 EIP 都不变**。
 - 如果 client 是"按 IP 白名单"的，只需让对端放通这组 EIP（3 个 /32），一次配置终身不变。
 
-详见 `option-b-nlb-abstraction/`。
+详见 `option-b-nlb-abstraction/`。如访问来源在 AWS 内网（同 VPC/Peering/TGW/DX/VPN），参考 `option-b-nlb-abstraction/INTERNAL-NLB.md` 改用内网 NLB（`scheme: internal` + 可选 `private-ipv4-addresses`）。
 
 ### C. 自管节点 ASG + 固定 ENI
 
