@@ -89,14 +89,37 @@ aws cloudformation wait stack-delete-complete --region "$AWS_REGION" \
   --stack-name eks-demo-node-iam-role 2>/dev/null || true
 
 # ---- 5. cluster ----
+#
+# POSTMORTEM P7: `eksctl delete cluster` exits as soon as it issues all
+# sub-stack delete calls, while the root `eksctl-<name>-cluster` stack
+# (VPC/NAT/EKS) is still DELETE_IN_PROGRESS. If you stop here the cluster
+# and VPC linger for another ~5 min, and any follow-up command that checks
+# for "clean account" will report false positives. Wait explicitly.
 log "5/6  delete EKS cluster (this is the long step, ~10 min)"
 eksctl delete cluster -f "$REPO_DIR/01-cluster/cluster.yaml" --disable-nodegroup-eviction
 
+log "     waiting for root cluster stack to fully delete..."
+aws cloudformation wait stack-delete-complete --region "$AWS_REGION" \
+  --stack-name "eksctl-$CLUSTER_NAME-cluster" 2>/dev/null || true
+# `wait stack-delete-complete` returns success BOTH when the stack reaches
+# DELETE_COMPLETE and when it no longer exists — exactly what we want.
+ok "     cluster stack gone"
+
 # ---- 6. leftover check ----
-log "6/6  check for leftover CFN stacks"
+log "6/6  check for leftover resources"
+echo "  CFN stacks:"
 aws cloudformation list-stacks --region "$AWS_REGION" \
   --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE DELETE_FAILED \
   --query "StackSummaries[?contains(StackName, \`$CLUSTER_NAME\`)].[StackName,StackStatus]" \
   --output table
+echo "  EKS clusters in region:"
+aws eks list-clusters --region "$AWS_REGION" --output text || true
+echo "  VPCs with demo CIDR $VPC_CIDR:"
+aws ec2 describe-vpcs --region "$AWS_REGION" \
+  --filters "Name=cidr,Values=$VPC_CIDR" --query 'Vpcs[].VpcId' --output text || true
+echo "  EIPs tagged Purpose=eks-stable-nlb:"
+aws ec2 describe-addresses --region "$AWS_REGION" \
+  --filters "Name=tag:Purpose,Values=eks-stable-nlb" \
+  --query 'Addresses[].AllocationId' --output text || true
 
 ok "teardown complete"

@@ -44,6 +44,20 @@
   2. 或在 demo 脚本里加一步强制 terminate 节点的路径。
   > 建议后续把 `04-upgrade-nodegroup.sh` 扩展成：先 `describe-nodegroup` 看 `version/releaseVersion`，若已是 latest 就提示改用 `terminate-instance-in-auto-scaling-group` 模拟。
 
+### P7. `eksctl delete cluster` 早退，根 CFN stack 还在 DELETE_IN_PROGRESS
+
+- **症状**：`eksctl delete cluster` 输出 `all cluster resources were deleted` 并退出 0，紧接着检查 `aws eks list-clusters` 仍能看到 `eks-demo`，`describe-vpcs --cidr 10.80.0.0/16` 还在，`describe-cluster` 状态 `DELETING`，`eksctl-eks-demo-cluster` CFN stack 状态 `DELETE_IN_PROGRESS`。大约再等 5 分钟才真正消失。
+- **根因**：eksctl 的"delete cluster"流程是**异步**的。它按依赖顺序发 delete 请求（nodegroup → addon → IAM SA → root cluster），子 stack 都删完后对 root stack 发起 `DeleteStack`，**不等**其完成就退出。给人的错觉是"已经删完"。
+- **处理**：在 `tear-down-all.sh` 第 5 步加一行
+  ```bash
+  aws cloudformation wait stack-delete-complete --stack-name eksctl-<cluster>-cluster
+  ```
+  `wait stack-delete-complete` 在 stack 进入 `DELETE_COMPLETE` **或**完全消失（DescribeStacks 404）时都返回成功，正好是我们要的终态。
+- **教训**：
+  - `eksctl delete cluster` 退出 0 ≠ 资源真的删完；
+  - AWS CFN 的"stack 删完"有两种终态：`DELETE_COMPLETE` 和 "stack 不再存在"（`ValidationError: Stack ... does not exist`）——`wait` 命令对两者都返回成功；
+  - 验证账号干净时，不要只看 `list-clusters`，最好直接查 CFN stack 或 VPC CIDR。
+
 ### P6. macOS 系统 bash 是 3.2，不支持 `mapfile` / `readarray`
 
 - **症状**：teardown 脚本第 3 步抛
@@ -141,12 +155,15 @@
 |---|----|------|----------|
 | 1 | `iam-noderole.yaml` 用正确的 EBS CSI ARN 路径 | ✅ | `02-nodepool-console-ready/iam-noderole.yaml` 已用 `service-role/AmazonEBSCSIDriverPolicy` |
 | 2 | 子网补 tag 无条件幂等执行（1.35 默认缺） | ✅ | `02-nodepool-console-ready/apply-fix.sh` Step 2 改为 always-tag |
-| 3 | `01-allocate-eips.sh` 用数组拼 CSV | ✅ | 脚本本身早已正确（M1 是手工命令的问题） |
+| 3 | `01-allocate-eips.sh` 用 printf 写 state.txt | ✅ | 新格式每行一个 allocation-id，不可能夹带空格 |
 | 4 | `04-upgrade-nodegroup.sh` 检测 latest 自动降级到 ASG terminate | ✅ | 新增 `MODE=version\|terminate` 分支，对比 `releaseVersion` |
 | 5 | Helm 固定 chart version | ✅ | `03-nodeport-demo/verify.sh` + `04/02-deploy-service-with-eips.sh` 都 pin 到 `LBC_CHART_VERSION=3.3.0` |
 | 6 | README 补 NodePort 外网访问前提 | ✅ | `03-nodeport-demo/README.md` 顶部加 "方案 A 的外网访问前提" 小节 |
 | 7 | 统一 tear-down 脚本 | ✅ | `scripts/tear-down-all.sh`，按 Service→NS→EIP→IAM→cluster 顺序销毁 |
 | 8 | `02-nodepool-console-ready/README.md` 标注 1.35 必打 tag | ✅ | README 首段提示 + 指向本文件 P2 |
+| 9 | state.txt 解析不再 `source`（M1 修补） | ✅ | `scripts/common.sh` 新增 `extract_eip_allocs` + `read_lines`；6 处调用点改用它 |
+| 10 | 脚本兼容 macOS bash 3.2（P6） | ✅ | 用 `read_lines` 替代 `mapfile`，空数组用 `"${arr[@]:-}"` |
+| 11 | teardown 等待 cluster stack 真正删完（P7） | ✅ | `tear-down-all.sh` 第 5 步加 `cloudformation wait stack-delete-complete` |
 
 ## 一键清理
 
